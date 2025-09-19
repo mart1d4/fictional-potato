@@ -1,25 +1,44 @@
+mod colors;
+mod components;
+mod constants;
 mod login_screen;
+mod register_screen;
+mod styles;
 
 use chrono::{DateTime, Utc};
 use iced::event::{self, Event};
 use iced::keyboard::key;
-use iced::widget::{self, button, center, column, container, mouse_area, opaque, stack, text};
-use iced::{Color, Element, Fill, Subscription, Task, Theme, keyboard};
+use iced::widget::{self, button, container, text};
+use iced::{Element, Fill, Font, Subscription, Task, Theme, keyboard};
+use turbo::types::PublicUser;
 
 pub fn main() -> iced::Result {
     iced::application("My title", App::update, App::view)
         .subscription(App::subscription)
+        .theme(App::theme)
+        //       .font(include_bytes!("../fonts/static/Roboto-Black.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-Bold.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-ExtraBold.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-ExtraLight.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-Light.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-Medium.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-Regular.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-SemiBold.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-Thin.ttf").as_slice())
+        //       .font(include_bytes!("../fonts/static/Roboto-BlackItalic.ttf").as_slice())
+        .font(include_bytes!("../fonts/RubikMonoOne-Regular.ttf").as_slice())
+        .default_font(RUBIK)
         .run()
 }
 
-#[derive(Debug, Default)]
-pub struct User {
-    pub id: i64,
-}
+//pub const ROBOTO_BLACK: Font = Font::with_name("Roboto-Black");
+//pub const ROBOTO_BLACK_ITALIC: Font = Font::with_name("Roboto-BlackItalic");
+//pub const ROBOTO_THIN: Font = Font::with_name("Roboto-Thin");
+pub const RUBIK: Font = Font::with_name("RubikMonoOne-Regular");
 
 #[derive(Debug, Default)]
 pub struct App {
-    pub user: Option<User>,
+    pub user: Option<PublicUser>,
     pub theme: Option<Theme>,
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
@@ -33,7 +52,7 @@ pub struct App {
 pub enum CurrentScreen {
     #[default]
     Loading,
-    Register,
+    Register(register_screen::State),
     Login(login_screen::State),
     App,
 }
@@ -44,12 +63,13 @@ enum Message {
     HideModal,
     ShowDialog(DialogType),
     HideDialog,
-    ChangeScreen(CurrentScreen),
     Event(Event),
 
-    ChangeLoginScreen,
+    ChangeCurrentScreen(CurrentScreen),
+    RegisterAndLoggedIn(Option<PublicUser>),
 
     LoginScreenMessage(login_screen::Message),
+    RegisterScreenMessage(register_screen::Message),
 }
 
 #[derive(Debug, Clone)]
@@ -73,12 +93,8 @@ pub enum DialogType {
 }
 
 impl App {
-    fn title(&self) -> String {
-        format!("Fictional Potato")
-    }
-
-    fn theme(&self) -> Option<Theme> {
-        self.theme.clone()
+    fn theme(&self) -> Theme {
+        Theme::CatppuccinMocha
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -87,15 +103,13 @@ impl App {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::ChangeLoginScreen => {
-                if let CurrentScreen::Loading = &mut self.current_screen {
-                    self.current_screen = CurrentScreen::Login(login_screen::State::new());
-                } else {
-                    self.current_screen = CurrentScreen::Loading;
-                }
+            Message::ChangeCurrentScreen(screen) => {
+                println!("Changing current screen!");
+                self.current_screen = screen;
                 Task::none()
             }
             Message::LoginScreenMessage(msg) => {
+                println!("Got login screen message");
                 if let CurrentScreen::Login(login_state) = &mut self.current_screen {
                     // Update the sub-screen's state
                     let command = login_screen::update(login_state, msg);
@@ -105,7 +119,13 @@ impl App {
                         match sub_msg {
                             // Intercept the LoginSuccess message from the LoginScreen
                             // to trigger a top-level transition
-                            login_screen::Message::LoginSuccess => Message::ChangeLoginScreen,
+                            login_screen::Message::LoginSuccess => {
+                                Message::ChangeCurrentScreen(CurrentScreen::App)
+                            }
+                            login_screen::Message::RequestScreenChange(screen_to_change_to) => {
+                                println!("App received explicit request to change screen!");
+                                Message::ChangeCurrentScreen(screen_to_change_to)
+                            }
                             // Other messages from LoginScreen don't trigger top-level transitions
                             _ => Message::LoginScreenMessage(sub_msg),
                         }
@@ -114,10 +134,38 @@ impl App {
                     Task::none()
                 }
             }
-            //Message::ChangeScreen(new_screen) => {
-            //    self.current_screen = new_screen;
-            //    Task::none()
-            //}
+            Message::RegisterScreenMessage(msg) => {
+                println!("Got register screen message");
+                if let CurrentScreen::Register(register_state) = &mut self.current_screen {
+                    println!("Got register screen message | in if condition");
+                    // Update the sub-screen's state
+                    let command = register_screen::update(register_state, msg);
+
+                    // If the sub-screen returns a command, map its message to our App's message
+                    command.map(|sub_msg| {
+                        match sub_msg {
+                            // Intercept the LoginSuccess message from the LoginScreen
+                            // to trigger a top-level transition
+                            register_screen::Message::RegisterSuccess(user) => {
+                                Message::RegisterAndLoggedIn(Some(user))
+                            }
+                            register_screen::Message::RequestScreenChange(screen_to_change_to) => {
+                                println!("App received explicit request to change screen!");
+                                Message::ChangeCurrentScreen(screen_to_change_to)
+                            }
+                            // Other messages from LoginScreen don't trigger top-level transitions
+                            _ => Message::RegisterScreenMessage(sub_msg),
+                        }
+                    })
+                } else {
+                    Task::none()
+                }
+            }
+            Message::RegisterAndLoggedIn(user_data) => {
+                self.user = user_data;
+                self.current_screen = CurrentScreen::App;
+                Task::none()
+            }
             Message::Event(event) => match event {
                 Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(key::Named::Tab),
@@ -130,10 +178,6 @@ impl App {
                         widget::focus_next()
                     }
                 }
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(key::Named::Escape),
-                    ..
-                }) => Task::none(),
                 _ => Task::none(),
             },
             _ => Task::none(),
@@ -143,60 +187,33 @@ impl App {
     fn view(&self) -> Element<'_, Message> {
         let content: Element<Message> = match &self.current_screen {
             CurrentScreen::Login(state) => {
-                // Render the LoginScreen's view and map its messages
                 login_screen::view(&state).map(Message::LoginScreenMessage)
             }
-            CurrentScreen::Register => text("Register Screen").into(),
-            //ScreenType::MainApp(state) => {
-            //    // Render the MainAppScreen's view and map its messages
-            //    main_app_screen::view(state).map(Message::MainAppScreenMessage)
-            //}
+            CurrentScreen::Register(state) => {
+                register_screen::view(&state).map(Message::RegisterScreenMessage)
+            }
             CurrentScreen::Loading => {
-                let co = column![
-                    text("Loading..."),
-                    button(text("Go to login screen")).on_press(Message::ChangeLoginScreen)
-                ]
-                .into();
-
-                return co;
+                button(text("Go to login screen").font(RUBIK).width(180).center())
+                    .height(40)
+                    .on_press(Message::ChangeCurrentScreen(CurrentScreen::Register(
+                        register_screen::State::new(),
+                    )))
+                    .into()
+            }
+            CurrentScreen::App => {
+                let mut username = "USERISUNDEFINED".to_string();
+                if self.user.is_some() {
+                    username = self.user.clone().unwrap().username;
+                }
+                text(format!("Welcome to your account, {}!", username)).into()
             }
             _ => text("Not yet implemented!").into(),
         };
 
         container(content)
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill)
-            .center_x(Fill)
-            .center_y(Fill)
+            .width(Fill)
+            .height(Fill)
+            .center(Fill)
             .into()
     }
 }
-
-//fn modal<'a, Message>(
-//    base: impl Into<Element<'a, Message>>,
-//    content: impl Into<Element<'a, Message>>,
-//    on_blur: Message,
-//) -> Element<'a, Message>
-//where
-//    Message: Clone + 'a,
-//{
-//    stack![
-//        base.into(),
-//        opaque(
-//            mouse_area(center(opaque(content)).style(|_theme| {
-//                container::Style {
-//                    background: Some(
-//                        Color {
-//                            a: 0.8,
-//                            ..Color::BLACK
-//                        }
-//                        .into(),
-//                    ),
-//                    ..container::Style::default()
-//                }
-//            }))
-//            .on_press(on_blur)
-//        )
-//    ]
-//    .into()
-//}
