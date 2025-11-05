@@ -6,41 +6,47 @@ use iced::{
 
 use crate::{RUBIK, colors::AppColorStatus, styles::input_style};
 
-pub fn styled_input(
+pub fn styled_input<'a, M>(
     label: &str,
     value: &str,
     error: Option<&str>,
     description: Option<&str>,
-    //on_input: T,
-    //on_submit: T,
+    on_input: impl Fn(String) -> M + 'a + Clone,
+    //on_submit: impl Fn() -> M + 'a + Clone,
     is_secure: Option<bool>,
     is_required: Option<bool>,
-) -> Element<'_, T> {
+) -> Element<'a, M>
+where
+    M: Clone + 'a,
+{
     let password_confirm_input = text_input(label, value)
-        //.on_input(on_input)
+        .on_input(on_input)
         //.on_submit(on_submit)
-        .line_height(1.5)
+        .line_height(1.2)
         .width(Fill)
         .secure(is_secure.unwrap_or(false))
-        .style(|theme, _status| input_style(theme))
+        .style(input_style)
         .padding(10);
+
+    let show_star = is_required.unwrap_or(false) && !error.is_some();
+    let show_dash = error.is_some();
 
     column![
         row![
-            text!("{}", label.to_string().to_uppercase().as_str())
-                .size(12)
-                .font(RUBIK),
+            text!("{}", label).size(13).font(RUBIK),
             text!(
                 "{} {}",
-                if is_secure.unwrap_or(false) || error.is_some() {
-                    "* "
+                if show_star {
+                    "*"
+                } else if show_dash {
+                    "-"
                 } else {
                     ""
                 },
                 if let Some(err) = error { err } else { "" }
             )
             .color(Color::from(AppColorStatus::Failure))
-            .size(14)
+            .size(13)
         ]
         .spacing(4),
         password_confirm_input

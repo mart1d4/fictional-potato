@@ -3,7 +3,9 @@ mod components;
 mod constants;
 mod login_screen;
 mod register_screen;
+mod screens;
 mod styles;
+mod utils;
 
 use chrono::{DateTime, Utc};
 use iced::event::{self, Event};
@@ -12,8 +14,13 @@ use iced::widget::{self, button, container, text};
 use iced::{Element, Fill, Font, Subscription, Task, Theme, keyboard};
 use turbo::types::PublicUser;
 
+use crate::colors::AppColorMain;
+use crate::screens::app_screen;
+use crate::styles::button_style;
+use crate::utils::get_user_with_token;
+
 pub fn main() -> iced::Result {
-    iced::application("My title", App::update, App::view)
+    iced::application("Fictional Potato", App::update, App::view)
         .subscription(App::subscription)
         .theme(App::theme)
         //       .font(include_bytes!("../fonts/static/Roboto-Black.ttf").as_slice())
@@ -28,7 +35,7 @@ pub fn main() -> iced::Result {
         //       .font(include_bytes!("../fonts/static/Roboto-BlackItalic.ttf").as_slice())
         .font(include_bytes!("../fonts/RubikMonoOne-Regular.ttf").as_slice())
         .default_font(RUBIK)
-        .run()
+        .run_with(App::new)
 }
 
 //pub const ROBOTO_BLACK: Font = Font::with_name("Roboto-Black");
@@ -54,7 +61,7 @@ pub enum CurrentScreen {
     Loading,
     Register(register_screen::State),
     Login(login_screen::State),
-    App,
+    App(app_screen::State),
 }
 
 #[derive(Debug, Clone)]
@@ -65,11 +72,14 @@ enum Message {
     HideDialog,
     Event(Event),
 
+    RefreshTokenChecked(Result<PublicUser, String>),
+
     ChangeCurrentScreen(CurrentScreen),
-    RegisterAndLoggedIn(Option<PublicUser>),
+    LogUserIn(Option<PublicUser>),
 
     LoginScreenMessage(login_screen::Message),
     RegisterScreenMessage(register_screen::Message),
+    AppScreenMessage(app_screen::Message),
 }
 
 #[derive(Debug, Clone)]
@@ -101,69 +111,52 @@ impl App {
         event::listen().map(Message::Event)
     }
 
+    fn new() -> (Self, Task<Message>) {
+        (
+            App::default(),
+            Task::perform(get_user_with_token(), Message::RefreshTokenChecked),
+        )
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ChangeCurrentScreen(screen) => {
-                println!("Changing current screen!");
                 self.current_screen = screen;
                 Task::none()
             }
             Message::LoginScreenMessage(msg) => {
-                println!("Got login screen message");
                 if let CurrentScreen::Login(login_state) = &mut self.current_screen {
-                    // Update the sub-screen's state
                     let command = login_screen::update(login_state, msg);
-
-                    // If the sub-screen returns a command, map its message to our App's message
-                    command.map(|sub_msg| {
-                        match sub_msg {
-                            // Intercept the LoginSuccess message from the LoginScreen
-                            // to trigger a top-level transition
-                            login_screen::Message::LoginSuccess => {
-                                Message::ChangeCurrentScreen(CurrentScreen::App)
-                            }
-                            login_screen::Message::RequestScreenChange(screen_to_change_to) => {
-                                println!("App received explicit request to change screen!");
-                                Message::ChangeCurrentScreen(screen_to_change_to)
-                            }
-                            // Other messages from LoginScreen don't trigger top-level transitions
-                            _ => Message::LoginScreenMessage(sub_msg),
+                    command.map(|sub_msg| match sub_msg {
+                        login_screen::Message::LoginSuccess(user) => Message::LogUserIn(Some(user)),
+                        login_screen::Message::RequestScreenChange(screen) => {
+                            Message::ChangeCurrentScreen(screen)
                         }
+                        _ => Message::LoginScreenMessage(sub_msg),
                     })
                 } else {
                     Task::none()
                 }
             }
             Message::RegisterScreenMessage(msg) => {
-                println!("Got register screen message");
                 if let CurrentScreen::Register(register_state) = &mut self.current_screen {
-                    println!("Got register screen message | in if condition");
-                    // Update the sub-screen's state
                     let command = register_screen::update(register_state, msg);
-
-                    // If the sub-screen returns a command, map its message to our App's message
-                    command.map(|sub_msg| {
-                        match sub_msg {
-                            // Intercept the LoginSuccess message from the LoginScreen
-                            // to trigger a top-level transition
-                            register_screen::Message::RegisterSuccess(user) => {
-                                Message::RegisterAndLoggedIn(Some(user))
-                            }
-                            register_screen::Message::RequestScreenChange(screen_to_change_to) => {
-                                println!("App received explicit request to change screen!");
-                                Message::ChangeCurrentScreen(screen_to_change_to)
-                            }
-                            // Other messages from LoginScreen don't trigger top-level transitions
-                            _ => Message::RegisterScreenMessage(sub_msg),
+                    command.map(|sub_msg| match sub_msg {
+                        register_screen::Message::RegisterSuccess(user) => {
+                            Message::LogUserIn(Some(user))
                         }
+                        register_screen::Message::RequestScreenChange(screen) => {
+                            Message::ChangeCurrentScreen(screen)
+                        }
+                        _ => Message::RegisterScreenMessage(sub_msg),
                     })
                 } else {
                     Task::none()
                 }
             }
-            Message::RegisterAndLoggedIn(user_data) => {
+            Message::LogUserIn(user_data) => {
                 self.user = user_data;
-                self.current_screen = CurrentScreen::App;
+                self.current_screen = CurrentScreen::App(app_screen::State::new());
                 Task::none()
             }
             Message::Event(event) => match event {
@@ -180,6 +173,23 @@ impl App {
                 }
                 _ => Task::none(),
             },
+            Message::RefreshTokenChecked(res) => {
+                if res.is_err() {
+                    println!(
+                        "Error getting user from token: {}",
+                        res.err().unwrap_or_default()
+                    );
+                    Task::done(Message::ChangeCurrentScreen(CurrentScreen::Login(
+                        login_screen::State::new(),
+                    )))
+                } else {
+                    let user = res.ok().unwrap();
+                    self.user = Some(user);
+                    Task::done(Message::ChangeCurrentScreen(CurrentScreen::App(
+                        app_screen::State::new(),
+                    )))
+                }
+            }
             _ => Task::none(),
         }
     }
@@ -192,28 +202,25 @@ impl App {
             CurrentScreen::Register(state) => {
                 register_screen::view(&state).map(Message::RegisterScreenMessage)
             }
-            CurrentScreen::Loading => {
-                button(text("Go to login screen").font(RUBIK).width(180).center())
-                    .height(40)
-                    .on_press(Message::ChangeCurrentScreen(CurrentScreen::Register(
-                        register_screen::State::new(),
-                    )))
-                    .into()
-            }
-            CurrentScreen::App => {
-                let mut username = "USERISUNDEFINED".to_string();
-                if self.user.is_some() {
-                    username = self.user.clone().unwrap().username;
-                }
-                text(format!("Welcome to your account, {}!", username)).into()
-            }
-            _ => text("Not yet implemented!").into(),
+            CurrentScreen::Loading => button(text("Go to register screen").center())
+                .height(40)
+                .padding(10)
+                .style(button_style)
+                .on_press(Message::ChangeCurrentScreen(CurrentScreen::Register(
+                    register_screen::State::new(),
+                )))
+                .into(),
+            CurrentScreen::App(state) => app_screen::view(&state).map(Message::AppScreenMessage),
         };
 
         container(content)
             .width(Fill)
             .height(Fill)
             .center(Fill)
+            .style(|_t| container::Style {
+                background: Some(AppColorMain::Primary.to_bg()),
+                ..Default::default()
+            })
             .into()
     }
 }

@@ -1,16 +1,18 @@
 use crate::{
     RUBIK,
     colors::{AppColorForeground, AppColorMain},
-    components::{container_style, input_style},
+    components::styled_input,
+    styles::{button_style, container_style},
+    utils::set_token_from_secure_storage,
 };
 use std::collections::HashMap;
-use turbo::{auth::AuthResponse, errors::ResponseError};
+use turbo::{auth::AuthResponse, errors::ResponseError, types::PublicUser};
 
 use iced::{
     Color, Element,
     Length::{self, Fill},
     Task,
-    widget::{button, column, container, row, text, text_input},
+    widget::{button, column, container, row, text},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -39,30 +41,13 @@ pub enum Message {
     UsernameInputChanged(String),
     PasswordInputChanged(String),
     LoginButtonPressed,
-    LoginSuccess,
+    LoginSuccess(PublicUser),
     LoginFailed(String),
     RegisterInstead,
     RequestScreenChange(super::CurrentScreen),
 }
 
 pub fn view(state: &State) -> Element<'_, Message> {
-    let identifier_input = text_input("Username or Email", &state.identifier)
-        .on_input(Message::UsernameInputChanged)
-        .on_submit(Message::LoginButtonPressed)
-        .line_height(1.5)
-        .width(Fill)
-        .style(|theme, _status| input_style(theme))
-        .padding(10);
-
-    let password_input = text_input("Password", &state.password)
-        .on_input(Message::PasswordInputChanged)
-        .on_submit(Message::LoginButtonPressed)
-        .line_height(1.5)
-        .width(Fill)
-        .secure(true)
-        .style(|theme, _status| input_style(theme))
-        .padding(10);
-
     let login_button = button(
         text(if state.is_loading {
             "Loging in…"
@@ -75,13 +60,13 @@ pub fn view(state: &State) -> Element<'_, Message> {
     .on_press(Message::LoginButtonPressed)
     .height(44)
     .width(Fill)
-    .style(button::primary)
+    .style(button_style)
     .padding(10);
 
     let register_link = button(
         text("Register")
-            .color(Color::from(AppColorMain::Primary))
-            .size(14),
+            .color(Color::from(AppColorMain::Secondary))
+            .size(12),
     )
     .on_press(Message::RegisterInstead)
     .style(button::text)
@@ -90,70 +75,56 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     container(
         column![
-            text("Log in").font(RUBIK).size(30).center(),
-            column![
-                row![
-                    text("USERNAME OR EMAIL").size(12).font(RUBIK),
-                    if let Some(err) = &state.identifier_error {
-                        text("* ".to_string() + err.as_str())
-                            .color(Color::parse("#f38ba8").unwrap_or(Color::BLACK))
-                            .size(14)
-                    } else {
-                        text("*")
-                            .color(Color::parse("#f38ba8").unwrap_or(Color::BLACK))
-                            .size(14)
-                    }
-                ]
-                .spacing(4),
-                identifier_input
-            ]
-            .spacing(4),
-            column![
-                row![
-                    text("PASSWORD").size(12),
-                    if let Some(err) = &state.password_error {
-                        text("* ".to_string() + err.as_str())
-                            .color(Color::parse("#f38ba8").unwrap_or(Color::BLACK))
-                            .size(14)
-                    } else {
-                        text("*")
-                            .color(Color::parse("#f38ba8").unwrap_or(Color::BLACK))
-                            .size(14)
-                    }
-                ]
-                .spacing(4),
-                password_input
-            ]
-            .spacing(4),
+            text("Log in").font(RUBIK).size(24).width(Fill).center(),
+            styled_input(
+                "Username or Email",
+                &state.identifier,
+                state.identifier_error.as_deref(),
+                None,
+                Message::UsernameInputChanged,
+                //,
+                None,
+                Some(true),
+            ),
+            styled_input(
+                "Password",
+                &state.password,
+                state.password_error.as_deref(),
+                None,
+                Message::PasswordInputChanged,
+                //,
+                Some(true),
+                Some(true),
+            ),
             column![
                 login_button,
                 row![
                     text("Don't have an account? ")
-                        .size(14)
-                        .color(Color::from(AppColorForeground::Tertiary)),
+                        .size(12)
+                        .color(Color::from(AppColorForeground::SubtextPrimary)),
                     register_link
                 ],
             ]
-            .spacing(12)
+            .spacing(8)
         ]
         .width(Length::Fixed(550.0))
         .padding(24)
         .spacing(24),
     )
-    .style(|theme| container_style(theme))
+    .style(container_style)
     .into()
 }
 
-pub async fn perform_login(identifier: String, password: String) -> Result<(), String> {
+pub async fn perform_login(identifier: String, password: String) -> Result<PublicUser, String> {
     println!("Attempting login for user with identifier: {}.", identifier);
 
     let mut map = HashMap::new();
-    map.insert("identifier", identifier.clone());
-    map.insert("password", password.clone());
+    map.insert("identifier", identifier);
+    map.insert("password", password);
 
     let client = reqwest::Client::new();
     let res = client
-        .post("http://localhost:8080/login")
+        .post("http://localhost:8585/auth/login")
         .json(&map)
         .send()
         .await
@@ -166,7 +137,8 @@ pub async fn perform_login(identifier: String, password: String) -> Result<(), S
             .map_err(|e| format!("Failed to parse successful login: {}", e))?;
 
         println!("res: {success_body:?}");
-        Ok(())
+        set_token_from_secure_storage(Some(success_body.refresh_token)).map_err(|e| "no")?;
+        Ok(success_body.user)
     } else {
         let error_body = res
             .json::<ResponseError>()
@@ -191,14 +163,15 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::LoginButtonPressed => {
             state.is_loading = true;
-            let identifier = state.identifier.clone();
-            let password = state.password.clone();
-            Task::perform(perform_login(identifier, password), |result| match result {
-                Ok(_) => Message::LoginSuccess,
-                Err(e) => Message::LoginFailed(e),
-            })
+            Task::perform(
+                perform_login(state.identifier.clone(), state.password.clone()),
+                |result| match result {
+                    Ok(user) => Message::LoginSuccess(user),
+                    Err(e) => Message::LoginFailed(e),
+                },
+            )
         }
-        Message::LoginSuccess => {
+        Message::LoginSuccess(_) => {
             state.is_loading = false;
             Task::none()
         }

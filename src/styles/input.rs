@@ -1,23 +1,24 @@
-use iced::{Background, Border, Color, Theme, border::Radius, widget::text_input};
+use iced::{
+    Background, Border, Color, Theme,
+    widget::text_input::{self, Status},
+};
 
-use crate::colors::{AppColorBackground, AppColorForeground, AppColorMain};
+use crate::{
+    colors::{AppColorBackground, AppColorForeground, AppColorMain},
+    constants::BORDER_RADIUS,
+};
 
-pub fn input_style(_theme: &Theme) -> text_input::Style {
+pub fn input_style(_theme: &Theme, _status: Status) -> text_input::Style {
     text_input::Style {
-        background: Background::Color(AppColorBackground::Tertiary.into()),
+        background: Background::Color(Color::from(AppColorBackground::Tertiary)),
         border: Border {
-            radius: Radius {
-                top_left: 3.0,
-                top_right: 3.0,
-                bottom_left: 3.0,
-                bottom_right: 3.0,
-            },
+            radius: BORDER_RADIUS.into(),
             width: 0.0,
             color: Color::TRANSPARENT,
         },
         icon: Color::TRANSPARENT,
-        placeholder: AppColorForeground::SubtextSecondary.into(),
+        placeholder: Color::from(AppColorForeground::SubtextTertiary).scale_alpha(0.8),
         value: AppColorForeground::Secondary.into(),
-        selection: Color::from(AppColorMain::Primary).scale_alpha(0.5),
+        selection: Color::from(AppColorMain::Primary).scale_alpha(0.2),
     }
 }

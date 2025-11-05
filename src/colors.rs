@@ -1,4 +1,4 @@
-use iced::Color;
+use iced::{Background, Color};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppColorMain {
@@ -50,6 +50,12 @@ impl From<AppColorMain> for Color {
     }
 }
 
+impl AppColorMain {
+    pub fn to_bg(self) -> Background {
+        Background::Color(Color::from(self))
+    }
+}
+
 impl From<AppColorStatus> for Color {
     fn from(value: AppColorStatus) -> Self {
         match value {
@@ -57,6 +63,12 @@ impl From<AppColorStatus> for Color {
             AppColorStatus::Warning => Color::from_rgb8(249, 226, 175),
             AppColorStatus::Failure => Color::from_rgb8(243, 139, 168),
         }
+    }
+}
+
+impl AppColorStatus {
+    pub fn to_bg(self) -> Background {
+        Background::Color(Color::from(self))
     }
 }
 
@@ -73,6 +85,12 @@ impl From<AppColorBackground> for Color {
     }
 }
 
+impl AppColorBackground {
+    pub fn to_bg(self) -> Background {
+        Background::Color(Color::from(self))
+    }
+}
+
 impl From<AppColorForeground> for Color {
     fn from(value: AppColorForeground) -> Self {
         match value {
@@ -83,5 +101,11 @@ impl From<AppColorForeground> for Color {
             AppColorForeground::SubtextSecondary => Color::from_rgb8(127, 132, 156),
             AppColorForeground::SubtextTertiary => Color::from_rgb8(108, 112, 134),
         }
+    }
+}
+
+impl AppColorForeground {
+    pub fn to_bg(self) -> Background {
+        Background::Color(Color::from(self))
     }
 }
